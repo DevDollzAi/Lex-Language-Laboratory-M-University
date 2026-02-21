@@ -68,10 +68,19 @@ class XPIIApp(ctk.CTk):
         self.session_entry = ctk.CTkEntry(self.meta_frame, placeholder_text="Auto-generated if empty")
         self.session_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
-        # Action Button
-        self.staple_btn = ctk.CTkButton(self.main_frame, text="EXECUTE STAPLE", command=self.run_stapler, 
-                                       height=50, font=ctk.CTkFont(size=16, weight="bold"), state="disabled")
-        self.staple_btn.grid(row=3, column=0, padx=20, pady=40, sticky="ew")
+        # Action Buttons
+        self.btn_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.btn_frame.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
+        self.btn_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.staple_btn = ctk.CTkButton(self.btn_frame, text="EXECUTE STAPLE", command=self.run_stapler,
+                                        height=50, font=ctk.CTkFont(size=16, weight="bold"), state="disabled")
+        self.staple_btn.grid(row=0, column=0, padx=(0, 10), sticky="ew")
+
+        self.verify_btn = ctk.CTkButton(self.btn_frame, text="VERIFY DOCUMENT", command=self.run_verify,
+                                        height=50, font=ctk.CTkFont(size=16, weight="bold"),
+                                        fg_color="#005f87", hover_color="#007ba7", state="disabled")
+        self.verify_btn.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
         # Log Output
         self.log_output = ctk.CTkTextbox(self.main_frame, height=150, font=ctk.CTkFont(size=11, family="Courier"))
@@ -87,6 +96,7 @@ class XPIIApp(ctk.CTk):
         if self.selected_file:
             self.file_name_label.configure(text=os.path.basename(self.selected_file), text_color="#00FF41")
             self.staple_btn.configure(state="normal")
+            self.verify_btn.configure(state="normal")
             self.log(f"FILE SELECTED: {os.path.basename(self.selected_file)}")
 
     def run_stapler(self):
@@ -103,16 +113,33 @@ class XPIIApp(ctk.CTk):
             session = self.session_entry.get() or None
             
             self.log("PHASE 2: INJECTING DETERMINISTIC METADATA...")
-            self.stapler.inject_metadata(author=author, session_id=session)
+            fingerprint = self.stapler.inject_metadata(author=author, session_id=session)
+            self.log(f"PROVENANCE FINGERPRINT: {fingerprint}")
             
             self.log("PHASE 3: REPACKING AND AUTO-REPAIR...")
-            self.stapler.pack(output_path)
+            file_hash = self.stapler.pack(output_path)
             
+            self.log(f"FILE SHA-256: {file_hash}")
             self.log(f"SUCCESS: {os.path.basename(output_path)} GENERATED.")
             messagebox.showinfo("XPII CHAIN", "Deterministic Provenance Stapled Successfully.")
         except Exception as e:
             self.log(f"ERROR: {str(e)}")
             messagebox.showerror("XPII CHAIN ERROR", f"Process Failed: {str(e)}")
+
+    def run_verify(self):
+        try:
+            self.log("VERIFYING DOCUMENT PROVENANCE...")
+            result = self.stapler.verify(self.selected_file)
+            self.log(f"STATUS: {result['status']}")
+            if result.get('author'):
+                self.log(f"AUTHOR: {result['author']}")
+            if result.get('session_id'):
+                self.log(f"SESSION ID: {result['session_id']}")
+            if result.get('sha256'):
+                self.log(f"EMBEDDED SHA-256: {result['sha256']}")
+        except Exception as e:
+            self.log(f"ERROR: {str(e)}")
+            messagebox.showerror("XPII CHAIN ERROR", f"Verification Failed: {str(e)}")
 
 if __name__ == "__main__":
     app = XPIIApp()

@@ -5,10 +5,18 @@ import shutil
 import lxml.etree as ET
 from datetime import datetime
 
+from .governance import create_governance_stack, AgentIdentity, AuditLog, PolicyEngine, OperatorControl
+
 class XPIIStapler:
     """
     Deterministic Provenance Stapler (XPII CHAIN)
     Implements the Unpack-Edit-Pack pipeline for OOXML metadata embedding.
+
+    Governance integration (Operator Control Mandate):
+      - AgentIdentity  : cryptographic session identity (Principle 4)
+      - AuditLog       : immutable, tamper-evident action log (Principle 7)
+      - PolicyEngine   : deterministic pre-flight policy checks (Principle 6)
+      - OperatorControl: external kill-switch for human oversight (Principle 1)
     """
     
     def __init__(self, work_dir="temp_unpack"):
@@ -21,14 +29,27 @@ class XPIIStapler:
             'xsi': 'http://www.w3.org/2001/XMLSchema-instance'
         }
 
+        self.identity, self.audit_log, self.policy_engine, self.operator_control = (
+            create_governance_stack("XPII-STAPLER")
+        )
+
     def unpack(self, docx_path):
         """Phase 1: Unpack the .docx (ZIP) archive."""
+        self.operator_control.assert_active()
+
+        ctx = {"identity": self.identity, "input_path": docx_path}
+        allowed, reasons = self.policy_engine.evaluate("unpack", ctx)
+        if not allowed:
+            raise PermissionError(f"Policy denied unpack: {'; '.join(reasons)}")
+
         if os.path.exists(self.work_dir):
             shutil.rmtree(self.work_dir)
         os.makedirs(self.work_dir)
         
         with zipfile.ZipFile(docx_path, 'r') as zip_ref:
             zip_ref.extractall(self.work_dir)
+
+        self.audit_log.record("unpack", {"input_path": docx_path}, "OK")
         print(f"Unpacked {docx_path} to {self.work_dir}")
 
     def _session_to_rsid(self, session_id):
@@ -38,8 +59,15 @@ class XPIIStapler:
 
     def inject_metadata(self, author="XPII-CHAIN", session_id=None):
         """Phase 2: Targeted XML manipulation for metadata embedding."""
+        self.operator_control.assert_active()
+
         if not session_id:
             session_id = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        ctx = {"identity": self.identity, "author": author, "session_id": session_id}
+        allowed, reasons = self.policy_engine.evaluate("inject_metadata", ctx)
+        if not allowed:
+            raise PermissionError(f"Policy denied inject_metadata: {'; '.join(reasons)}")
 
         rsid_value = self._session_to_rsid(session_id)
 
@@ -97,10 +125,22 @@ class XPIIStapler:
 
             tree.write(settings_path, encoding='UTF-8', xml_declaration=True)
 
+        self.audit_log.record(
+            "inject_metadata",
+            {"author": author, "session_id": session_id, "rsid": rsid_value},
+            "OK",
+        )
         print(f"Injected metadata for session {session_id} (RSID: {rsid_value})")
 
     def pack(self, output_path):
         """Phase 3: Repack and auto-repair sequence."""
+        self.operator_control.assert_active()
+
+        ctx = {"identity": self.identity, "output_path": output_path}
+        allowed, reasons = self.policy_engine.evaluate("pack", ctx)
+        if not allowed:
+            raise PermissionError(f"Policy denied pack: {'; '.join(reasons)}")
+
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
             for root, dirs, files in os.walk(self.work_dir):
                 for file in files:
@@ -110,7 +150,11 @@ class XPIIStapler:
         
         # Cleanup
         shutil.rmtree(self.work_dir)
+
+        self.audit_log.record("pack", {"output_path": output_path}, "OK")
         print(f"Packed document to {output_path}")
+
+
 
 if __name__ == "__main__":
     import sys
